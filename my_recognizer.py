@@ -20,6 +20,21 @@ def recognize(models: dict, test_set: SinglesData):
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     probabilities = []
     guesses = []
-    # TODO implement the recognizer
-    # return probabilities, guesses
-    raise NotImplementedError
+
+    for idx in range(test_set.num_items):
+        # Get the item X lengths for hmmlearn
+        X, lengths = test_set.get_item_Xlengths(idx)
+        log_l = {}
+
+        for word, model in models.items():
+            try:
+                log_l[word] = model.score(X, lengths)
+            except:
+                log_l[word] = float('-inf')
+
+        probabilities.append(log_l)
+        # Get the best guess
+        best_guess = max(log_l, key=log_l.get)
+        guesses.append(best_guess)
+
+    return probabilities, guesses

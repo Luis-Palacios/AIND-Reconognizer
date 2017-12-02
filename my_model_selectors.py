@@ -13,7 +13,8 @@ class ModelSelector(object):
     base class for model selection (strategy design pattern)
     '''
 
-    def __init__(self, all_word_sequences: dict, all_word_Xlengths: dict, this_word: str,
+    def __init__(self, all_word_sequences: dict,
+                 all_word_Xlengths: dict, this_word: str,
                  n_constant=3,
                  min_n_components=2, max_n_components=10,
                  random_state=14, verbose=False):
@@ -36,14 +37,18 @@ class ModelSelector(object):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         # warnings.filterwarnings("ignore", category=RuntimeWarning)
         try:
-            hmm_model = GaussianHMM(n_components=num_states, covariance_type="diag", n_iter=1000,
-                                    random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
+            hmm_model = GaussianHMM(n_components=num_states,
+                                    covariance_type="diag", n_iter=1000,
+                                    random_state=self.random_state,
+                                    verbose=False).fit(self.X, self.lengths)
             if self.verbose:
-                print("model created for {} with {} states".format(self.this_word, num_states))
+                print("model created for {} with {} states".format(
+                    self.this_word, num_states))
             return hmm_model
         except:
             if self.verbose:
-                print("failure on {} with {} states".format(self.this_word, num_states))
+                print("failure on {} with {} states".format(
+                    self.this_word, num_states))
             return None
 
 
@@ -76,8 +81,29 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_model = None
+        best_score = float("inf")
+        components = range(self.min_n_components, self.max_n_components + 1)
+        for component in components:
+            # Bayesian Information Crieteria: −2 log L + p log N
+            # see http://www2.imm.dtu.dk/courses/02433/doc/ch6_slides.pdf
+
+            # p is the number of parameters
+            p = (component**2) + 2 * len(self.X[0]) * component
+            try:
+                model = self.base_model(component)
+                model_test = model.fit(self.X, self.lengths)
+                # L is the likelihood of the fitted model
+                log_l = model_test.score(self.X, self.lengths)
+                # N is the number of data points
+                log_n = math.log(len(self.lengths))
+                model_score = -2 * log_l + p * log_n
+                if model_score < best_score:
+                    best_model = model_test
+                    best_score = model_score
+            except:
+                pass
+        return best_model
 
 
 class SelectorDIC(ModelSelector):
@@ -93,8 +119,33 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        # log(P(X(i)) :difference between likelihood of the data
+        # - 1/(M-1)SUM(log(P(X(all but i)) is
+        # the avg of the anti-likelihood of the data
+        # M is likelihood component length
+        # alpha : parameter
+        scores = []
+        try:
+            components = range(self.min_n_components,
+                               self.max_n_components + 1)
+            log_p_list = []
+
+            for component in components:
+                model = self.base_model(component)
+                log_p_list.append(model.score(self.X, self.lengths))
+
+            sum_log_p = sum(log_p_list)
+            m = len(components)
+            for log_p in log_p_list:
+                avg_of_anti_p = - (sum_log_p - log_p) / (m - 1)
+                dic_score = log_p + avg_of_anti_p
+                scores.append(dic_score)
+        except:
+            pass
+
+        states = components[np.argmax(
+            scores)] if scores else self.n_constant
+        return self.base_model(states)
 
 
 class SelectorCV(ModelSelector):
@@ -105,5 +156,23 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        mean_scores = []
+        split_method = KFold()
+        try:
+            components = range(self.min_n_components,
+                               self.max_n_components + 1)
+            for component in components:
+                model = self.base_model(component)
+                fold_scores = []
+                for _, test_idx in split_method.split(self.sequences):
+                    test_X, test_length = combine_sequences(
+                        test_idx, self.sequences)
+                    fold_scores.append(model.score(test_X, test_length))
+                mean_scores.append(np.mean(fold_scores))
+        except:
+            pass
+
+        states = components[np.argmax(
+            mean_scores)] if mean_scores else self.n_constant
+
+        return self.base_model(states)
